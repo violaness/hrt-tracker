@@ -4,7 +4,29 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Dosing Rhythm</title>
-<link rel="icon" href="data:,">
+<link id="favicon" rel="icon" href="">
+<link id="apple-icon" rel="apple-touch-icon" href="">
+<script>
+(function () {
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">' +
+    '<rect width="512" height="512" rx="112" fill="#FAF7F5"/>' +
+    '<circle cx="196" cy="256" r="92" fill="#7A9B76"/>' +
+    '<circle cx="336" cy="256" r="66" fill="#A9C0A0"/>' +
+    '</svg>';
+  var svgUrl = "data:image/svg+xml;base64," + btoa(svg);
+  var img = new Image();
+  img.onload = function () {
+    var canvas = document.createElement("canvas");
+    canvas.width = 180;
+    canvas.height = 180;
+    canvas.getContext("2d").drawImage(img, 0, 0, 180, 180);
+    var pngUrl = canvas.toDataURL("image/png");
+    document.getElementById("favicon").setAttribute("href", pngUrl);
+    document.getElementById("apple-icon").setAttribute("href", pngUrl);
+  };
+  img.src = svgUrl;
+})();
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
