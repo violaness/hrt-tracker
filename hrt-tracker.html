@@ -268,7 +268,7 @@ function heroHtml(entry, now) {
     <div class="card hero">
       <div class="hero-top">
         <span class="badge mono" style="background:${color}1A;color:${color};">Next up · ${item.type}</span>
-        ${item.site && info.state !== "unset" ? `<span class="mono" style="font-size:12px;color:var(--muted);">Next: ${item.site} side</span>` : ""}
+        ${item.site && info.state !== "unset" ? `<button class="mono" style="font-size:12px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;cursor:pointer;" onclick="swapSide('${item.id}')">Next: ${item.site} side ⇄</button>` : ""}
       </div>
       <p class="hero-name display">${esc(item.name)}</p>
       <p class="hero-primary mono" style="color:${statusColor};">${primary}</p>
@@ -419,6 +419,14 @@ function handleAdd() {
   showAdd = false;
   form = defaultForm("patch");
   formError = "";
+  render();
+}
+
+function swapSide(id) {
+  items = items.map((it) =>
+    it.id === id && it.site ? { ...it, site: it.site === "left" ? "right" : "left" } : it
+  );
+  save();
   render();
 }
 
