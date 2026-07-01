@@ -28,7 +28,7 @@
 })();
 </script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Special+Elite&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
   :root {
     --bg: #FAF7F5;
@@ -50,7 +50,7 @@
     font-family: 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .display { font-family: 'Fraunces', serif; }
+  .display { font-family: 'Special Elite', monospace; }
   .mono { font-family: 'IBM Plex Mono', monospace; }
   .wrap { max-width: 480px; margin: 0 auto; padding: 32px 20px 96px; }
   .eyebrow { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--rose); margin: 0; }
@@ -94,20 +94,68 @@
   .empty { text-align: center; padding: 24px; }
   .empty p:first-child { font-size: 17px; margin: 0 0 4px; }
   .empty p:last-child { font-size: 13px; color: var(--muted); margin: 0; }
+  .backup-link { background: none; border: none; color: var(--muted); font-size: 12px; text-decoration: underline; cursor: pointer; padding: 0; margin-bottom: 20px; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(43,37,48,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
+  .modal-card { background: var(--card); border-radius: 16px; padding: 24px; max-width: 360px; width: 100%; }
+  .modal-title { font-size: 20px; font-weight: 700; margin: 0 0 10px; }
+  .modal-desc { font-size: 13px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+  .modal-btn { width: 100%; border: none; border-radius: 10px; padding: 13px; font-size: 14px; font-weight: 600; color: #fff; cursor: pointer; margin-bottom: 10px; }
 </style>
 </head>
 <body>
 <div class="wrap" id="app"></div>
+<input type="file" id="restore-input" accept="application/json" style="display:none" onchange="handleRestoreFile(this)" />
 
 <script>
+window.addEventListener("error", function (e) {
+  var app = document.getElementById("app");
+  if (app && !app.dataset.crashed) {
+    app.dataset.crashed = "1";
+    app.innerHTML = '<div class="card empty" style="margin-top:32px;"><p class="display">Something went wrong loading the tracker</p><p>Try reloading the page. If you\'re previewing this inside Claude, open the hosted GitHub Pages link in your phone\'s browser instead — some browser features it needs aren\'t available inside Claude\'s preview.</p></div>';
+  }
+});
+
+var memoryStore = {};
+var storageAvailable = (function () {
+  try {
+    var t = "__storage_test__";
+    window.localStorage.setItem(t, t);
+    window.localStorage.removeItem(t);
+    return true;
+  } catch (e) {
+    return false;
+  }
+})();
+function storageGet(key) {
+  try {
+    if (storageAvailable) return window.localStorage.getItem(key);
+  } catch (e) {}
+  return Object.prototype.hasOwnProperty.call(memoryStore, key) ? memoryStore[key] : null;
+}
+function storageSet(key, value) {
+  try {
+    if (storageAvailable) {
+      window.localStorage.setItem(key, value);
+      return;
+    }
+  } catch (e) {}
+  memoryStore[key] = value;
+}
+
 const DAY = 24 * 60 * 60 * 1000;
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const STORAGE_KEY = "hrt-tracker-items";
 
 let items = [];
-try { items = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch (e) { items = []; }
+let periods = [];
+try { periods = JSON.parse(storageGet("hrt-tracker-periods") || "[]"); } catch (e) { periods = []; }
+function savePeriods() {
+  try { storageSet("hrt-tracker-periods", JSON.stringify(periods)); } catch (e) {}
+}
+try { items = JSON.parse(storageGet(STORAGE_KEY) || "[]"); } catch (e) { items = []; }
 
 let showAdd = false;
+let showBackup = false;
 let formError = "";
 let form = defaultForm("patch");
 
@@ -128,10 +176,11 @@ function defaultForm(type) {
 }
 
 function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch (e) {}
+  try { storageSet(STORAGE_KEY, JSON.stringify(items)); } catch (e) {}
 }
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
+
 
 function startOfDay(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
 function dateOnlyStr(ts) { return new Date(ts).toDateString(); }
@@ -209,6 +258,126 @@ function getInfo(item, now) {
   return { state: "unset", sortTs: -Infinity };
 }
 
+function periodHtml(now) {
+  const sortedPeriods = [...periods].sort((a, b) => new Date(b) - new Date(a));
+  const lastStart = sortedPeriods[0] ? new Date(sortedPeriods[0]).getTime() : null;
+
+  let avgLength = 28;
+  if (sortedPeriods.length >= 2) {
+    const gaps = [];
+    for (let i = 0; i < sortedPeriods.length - 1 && i < 5; i++) {
+      gaps.push((new Date(sortedPeriods[i]) - new Date(sortedPeriods[i + 1])) / DAY);
+    }
+    avgLength = Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length);
+  }
+
+  let statusHtml;
+  if (!lastStart) {
+    statusHtml = `<p class="hero-primary mono" style="font-size:22px;color:var(--sage);">Not logged yet</p>
+      <p class="hero-secondary">Log day 1 of your period to start tracking.</p>`;
+  } else {
+    const cycleDay = Math.floor((startOfDay(now) - startOfDay(lastStart)) / DAY) + 1;
+    const predictedNext = startOfDay(lastStart) + avgLength * DAY;
+    const untilNext = predictedNext - startOfDay(now);
+    statusHtml = `
+      <p class="hero-primary mono" style="font-size:32px;color:var(--sage);">Day ${cycleDay}</p>
+      <p class="hero-secondary">Next period estimated ${untilNext <= 0 ? "around now" : formatCountdown(untilNext) + " away"} · ${formatDateShort(predictedNext)}${sortedPeriods.length >= 2 ? ` · avg ${avgLength}d cycle` : ""}</p>
+    `;
+  }
+
+  const history = sortedPeriods.slice(0, 6).map((d) => `
+    <div class="row">
+      <p class="row-name">${formatDateShort(new Date(d).getTime())}</p>
+      <button class="icon-btn" style="color:var(--dim);" onclick="removePeriod('${d}')" aria-label="Remove">✕</button>
+    </div>
+  `).join("");
+
+  return `
+    <div class="section">
+      <p class="section-title" style="color:var(--sage);">Period</p>
+      <div class="card" style="margin-bottom:8px;">
+        ${statusHtml}
+        <button class="btn" style="background:var(--sage);" onclick="logPeriod()">Log period started today</button>
+      </div>
+      ${history}
+    </div>
+  `;
+}
+
+function logPeriod() {
+  const today = new Date().toDateString();
+  if (!periods.some((d) => new Date(d).toDateString() === today)) {
+    periods.push(new Date().toISOString());
+    savePeriods();
+  }
+  render();
+}
+
+function removePeriod(d) {
+  periods = periods.filter((x) => x !== d);
+  savePeriods();
+  render();
+}
+
+function backupModalHtml() {
+  return `
+    <div class="modal-overlay" onclick="if(event.target===this) toggleBackup()">
+      <div class="modal-card">
+        <p class="modal-title display">Back up & restore</p>
+        <p class="modal-desc">Back up saves a file to your Downloads (or Files on iPhone/iPad). Restore loads it back in. Keep backups in iCloud Drive or Google Drive for safety.</p>
+        <button class="modal-btn" style="background:var(--sage);" onclick="backupAllData()">💾 Back up all data</button>
+        <button class="modal-btn" style="background:var(--slate);" onclick="triggerRestore()">📂 Restore from backup</button>
+        <button class="btn-cancel" style="width:100%;border-radius:10px;padding:11px;" onclick="toggleBackup()">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function toggleBackup() {
+  showBackup = !showBackup;
+  render();
+}
+
+function backupAllData() {
+  const payload = { app: "hrt-tracker", exportedAt: new Date().toISOString(), items, periods };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `hrt-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showBackup = false;
+  render();
+}
+
+function triggerRestore() {
+  document.getElementById("restore-input").click();
+}
+
+function handleRestoreFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (Array.isArray(data.items)) items = data.items;
+      if (Array.isArray(data.periods)) periods = data.periods;
+      save();
+      savePeriods();
+      showBackup = false;
+      render();
+    } catch (err) {
+      alert("That doesn't look like a valid backup file.");
+    }
+  };
+  reader.readAsText(file);
+  input.value = "";
+}
+
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -223,7 +392,8 @@ function render() {
 
   let html = `
     <p class="eyebrow">On schedule</p>
-    <h1 class="display">Your dosing rhythm</h1>
+    <h1 class="display">Keeping You Level</h1>
+    <button class="backup-link" onclick="toggleBackup()">Back up & restore</button>
   `;
 
   html += hero ? heroHtml(hero, now) : `
@@ -235,10 +405,13 @@ function render() {
 
   html += sectionHtml("Patches", "#B5748C", patches, now);
   html += sectionHtml("Pills", "#7C8A9E", pills, now);
+  html += periodHtml(now);
 
   html += `<div style="margin-top:24px;">`;
   html += showAdd ? formHtml() : `<button class="add-toggle" onclick="toggleAdd()">+ Add medication</button>`;
   html += `</div>`;
+
+  if (showBackup) html += backupModalHtml();
 
   document.getElementById("app").innerHTML = html;
 }
