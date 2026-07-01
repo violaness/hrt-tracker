@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Dosing Rhythm</title>
+<link rel="icon" href="data:,">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #FAF7F5;
+    --ink: #2B2530;
+    --card: #FFFDFB;
+    --line: #E8E1DC;
+    --muted: #7C6F78;
+    --rose: #B5748C;
+    --slate: #7C8A9E;
+    --sage: #7A9B76;
+    --terracotta: #C1654A;
+    --dim: #B7ADA6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .display { font-family: 'Fraunces', serif; }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 32px 20px 96px; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--rose); margin: 0; }
+  h1 { font-size: 28px; font-weight: 600; margin: 4px 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+  .hero { padding: 24px; margin-bottom: 32px; }
+  .hero-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .badge { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 10px; border-radius: 999px; }
+  .hero-name { font-size: 22px; font-weight: 600; margin: 0; }
+  .hero-primary { font-size: 36px; font-weight: 500; margin: 10px 0 2px; }
+  .hero-secondary { font-size: 14px; color: var(--muted); margin: 0; }
+  .btn { border: none; border-radius: 12px; padding: 13px; font-size: 14px; font-weight: 500; cursor: pointer; width: 100%; color: #fff; margin-top: 18px; }
+  .section { margin-bottom: 24px; }
+  .section-title { display: flex; align-items: center; gap: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; padding: 0 2px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .row-name { font-size: 14px; font-weight: 500; margin: 0; }
+  .row-sub { font-size: 12px; margin: 2px 0 0; }
+  .row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .icon-btn { border: none; border-radius: 999px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .add-toggle { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 13px; font-size: 14px; font-weight: 500; cursor: pointer; }
+  .form-card { display: flex; flex-direction: column; gap: 14px; }
+  .type-row, .mode-row { display: flex; gap: 8px; }
+  .toggle-btn { flex: 1; border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 8px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--ink); text-transform: capitalize; }
+  .toggle-btn.active { border-color: var(--rose); background: #F7ECEF; }
+  input[type="text"], input[type="number"], input[type="date"], input[type="time"] {
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 14px; font-family: inherit; outline: none; background: #fff; color: var(--ink);
+  }
+  .full { width: 100%; }
+  .field-row { display: flex; align-items: center; justify-content: space-between; }
+  .field-label { font-size: 12px; color: var(--muted); }
+  .weekday-grid { display: flex; gap: 6px; }
+  .weekday-grid button { flex: 1; padding: 8px 0; font-size: 12px; }
+  .day-time-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .interval-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .interval-row input { width: 64px; }
+  .form-actions { display: flex; gap: 8px; }
+  .form-actions button { flex: 1; border-radius: 8px; padding: 10px; font-size: 14px; font-weight: 500; cursor: pointer; }
+  .btn-cancel { border: 1px solid var(--line); background: transparent; color: var(--ink); }
+  .btn-submit { border: none; background: var(--ink); color: #fff; }
+  .error-text { font-size: 12px; color: var(--terracotta); text-align: center; margin: 0; }
+  .empty { text-align: center; padding: 24px; }
+  .empty p:first-child { font-size: 17px; margin: 0 0 4px; }
+  .empty p:last-child { font-size: 13px; color: var(--muted); margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+const DAY = 24 * 60 * 60 * 1000;
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const STORAGE_KEY = "hrt-tracker-items";
+
+let items = [];
+try { items = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch (e) { items = []; }
+
+let showAdd = false;
+let formError = "";
+let form = defaultForm("patch");
+
+function defaultForm(type) {
+  return {
+    type,
+    name: "",
+    mode: type === "patch" ? "weekdays" : "cycle",
+    frequencyDays: type === "patch" ? 3.5 : 1,
+    weekdays: [],
+    weekdayTimeMap: {},
+    cycleLength: 28,
+    cycleStart: new Date().toISOString().slice(0, 10),
+    pillStartDay: 15,
+    pillDuration: 12,
+    pillTime: "20:00",
+  };
+}
+
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch (e) {}
+}
+
+function uid() { return Math.random().toString(36).slice(2, 10); }
+
+function startOfDay(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
+function dateOnlyStr(ts) { return new Date(ts).toDateString(); }
+
+function formatWhen(ts) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function formatDateShort(ts) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function formatCountdown(ms) {
+  const abs = Math.abs(ms);
+  const days = Math.floor(abs / DAY);
+  const hours = Math.floor((abs % DAY) / (60 * 60 * 1000));
+  const mins = Math.floor((abs % (60 * 60 * 1000)) / (60 * 1000));
+  const suffix = ms < 0 ? " overdue" : "";
+  if (days > 0) return `${days}d ${hours}h${suffix}`;
+  if (hours > 0) return `${hours}h ${mins}m${suffix}`;
+  return `${mins}m${suffix}`;
+}
+function pillTimeOffset(time) {
+  if (!time) return 9 * 60 * 60 * 1000;
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 * 60 * 1000 + m * 60 * 1000;
+}
+
+function getInfo(item, now) {
+  if (item.scheduleType === "interval") {
+    if (!item.lastDone) return { state: "unset", sortTs: -Infinity };
+    const due = new Date(item.lastDone).getTime() + item.frequencyDays * DAY;
+    const state = due <= now ? "overdue" : due - now < DAY ? "today" : "upcoming";
+    return { state, dueTs: due, sortTs: due };
+  }
+  if (item.scheduleType === "weekdays") {
+    const todayStart = startOfDay(now);
+    const lastDoneDateStr = item.lastDone ? dateOnlyStr(item.lastDone) : null;
+    let due = null;
+    for (let offset = 0; offset < 14; offset++) {
+      const cand = todayStart + offset * DAY;
+      const wd = new Date(cand).getDay();
+      const entry = item.weekdaySchedule.find((s) => s.day === wd);
+      if (entry) {
+        if (offset === 0 && lastDoneDateStr === dateOnlyStr(cand)) continue;
+        const [h, m] = entry.time.split(":").map(Number);
+        due = cand + h * 60 * 60 * 1000 + m * 60 * 1000;
+        break;
+      }
+    }
+    if (due === null) return { state: "unset", sortTs: -Infinity };
+    const state = due <= now ? "overdue" : due - now < DAY ? "today" : "upcoming";
+    return { state, dueTs: due, sortTs: due };
+  }
+  if (item.scheduleType === "cycle") {
+    const start = startOfDay(item.cycleStart);
+    const daysSince = Math.floor((startOfDay(now) - start) / DAY);
+    const cycleLength = item.cycleLength;
+    const daysIntoCycle = ((daysSince % cycleLength) + cycleLength) % cycleLength;
+    const cycleAnchorTs = startOfDay(now) - daysIntoCycle * DAY;
+    const cycleDay = daysIntoCycle + 1;
+    const windowStart = item.pillStartDay;
+    const windowEnd = item.pillStartDay + item.pillDuration - 1;
+    const inWindow = cycleDay >= windowStart && cycleDay <= windowEnd;
+    const windowEndTs = cycleAnchorTs + (windowEnd - 1) * DAY;
+    if (inWindow) {
+      const takenToday = item.lastDone && dateOnlyStr(item.lastDone) === dateOnlyStr(now);
+      return { state: "active", courseDay: cycleDay - windowStart + 1, windowEndTs, takenToday, sortTs: -1 };
+    }
+    const nextStartTs = (cycleDay < windowStart
+      ? cycleAnchorTs + (windowStart - 1) * DAY
+      : cycleAnchorTs + cycleLength * DAY + (windowStart - 1) * DAY) + pillTimeOffset(item.pillTime);
+    return { state: "waiting", nextStartTs, sortTs: nextStartTs };
+  }
+  return { state: "unset", sortTs: -Infinity };
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function render() {
+  const now = Date.now();
+  const withInfo = items.map((it) => ({ item: it, info: getInfo(it, now) }));
+  const sorted = [...withInfo].sort((a, b) => a.info.sortTs - b.info.sortTs);
+  const hero = sorted[0];
+  const patches = sorted.filter((x) => x.item.type === "patch");
+  const pills = sorted.filter((x) => x.item.type === "pill");
+
+  let html = `
+    <p class="eyebrow">On schedule</p>
+    <h1 class="display">Your dosing rhythm</h1>
+  `;
+
+  html += hero ? heroHtml(hero, now) : `
+    <div class="card empty" style="margin-bottom:32px;">
+      <p class="display">Nothing tracked yet</p>
+      <p>Add a patch or pill below to get started.</p>
+    </div>
+  `;
+
+  html += sectionHtml("Patches", "#B5748C", patches, now);
+  html += sectionHtml("Pills", "#7C8A9E", pills, now);
+
+  html += `<div style="margin-top:24px;">`;
+  html += showAdd ? formHtml() : `<button class="add-toggle" onclick="toggleAdd()">+ Add medication</button>`;
+  html += `</div>`;
+
+  document.getElementById("app").innerHTML = html;
+}
+
+function heroHtml(entry, now) {
+  const { item, info } = entry;
+  const color = item.type === "patch" ? "#B5748C" : "#7C8A9E";
+  const statusColor = info.state === "overdue" ? "var(--terracotta)" : (info.state === "today" || info.state === "active") ? "var(--rose)" : "var(--sage)";
+  let primary, secondary, buttonLabel = item.type === "patch" ? "Mark patch changed" : "Mark taken";
+
+  if (info.state === "unset") {
+    primary = "Not started"; secondary = "Log your first dose to start tracking";
+  } else if (info.state === "active") {
+    primary = `Day ${info.courseDay} of ${item.pillDuration}`;
+    secondary = `Course runs through ${formatDateShort(info.windowEndTs)}`;
+    buttonLabel = info.takenToday ? "Taken today ✓" : "Mark taken today";
+  } else if (info.state === "waiting") {
+    primary = formatCountdown(info.nextStartTs - now);
+    secondary = "Course starts " + formatWhen(info.nextStartTs);
+    buttonLabel = null;
+  } else {
+    primary = formatCountdown(info.dueTs - now);
+    secondary = (info.state === "overdue" ? "Was due " : "Due ") + formatWhen(info.dueTs);
+  }
+
+  return `
+    <div class="card hero">
+      <div class="hero-top">
+        <span class="badge mono" style="background:${color}1A;color:${color};">Next up · ${item.type}</span>
+        ${item.site && info.state !== "unset" ? `<span class="mono" style="font-size:12px;color:var(--muted);">Next: ${item.site} side</span>` : ""}
+      </div>
+      <p class="hero-name display">${esc(item.name)}</p>
+      <p class="hero-primary mono" style="color:${statusColor};">${primary}</p>
+      <p class="hero-secondary">${secondary}</p>
+      ${buttonLabel ? `<button class="btn" style="background:${color};" onclick="markDone('${item.id}')">✓ ${buttonLabel}</button>` : ""}
+    </div>
+  `;
+}
+
+function sectionHtml(title, color, entries, now) {
+  if (entries.length === 0) return "";
+  let rows = entries.map(({ item, info }) => {
+    const statusColor = info.state === "overdue" ? "var(--terracotta)" : (info.state === "today" || info.state === "active") ? "var(--rose)" : info.state === "unset" ? "var(--dim)" : "var(--sage)";
+    let sub;
+    if (info.state === "unset") sub = "not started";
+    else if (info.state === "active") sub = `day ${info.courseDay} of ${item.pillDuration}`;
+    else if (info.state === "waiting") sub = "starts " + formatCountdown(info.nextStartTs - now);
+    else sub = formatCountdown(info.dueTs - now);
+
+    return `
+      <div class="row">
+        <div style="min-width:0;">
+          <p class="row-name">${esc(item.name)}</p>
+          <p class="row-sub mono" style="color:${statusColor};">${sub}</p>
+        </div>
+        <div class="row-actions">
+          <button class="icon-btn" style="background:${color}1A;color:${color};" onclick="markDone('${item.id}')" aria-label="Mark done">✓</button>
+          <button class="icon-btn" style="color:var(--dim);" onclick="removeItem('${item.id}')" aria-label="Remove">✕</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="section">
+      <p class="section-title" style="color:${color};">${title}</p>
+      ${rows}
+    </div>
+  `;
+}
+
+function formHtml() {
+  const isPatch = form.type === "patch";
+  let html = `<div class="card form-card">`;
+
+  html += `<div class="type-row">`;
+  ["patch", "pill"].forEach((t) => {
+    html += `<button class="toggle-btn ${form.type === t ? "active" : ""}" onclick="setType('${t}')">${t}</button>`;
+  });
+  html += `</div>`;
+
+  html += `<input class="full" type="text" placeholder="${isPatch ? "e.g. Estradiol 100mcg patch" : "e.g. Progesterone 100mg"}" value="${esc(form.name)}" oninput="setField('name', this.value)" />`;
+
+  html += `<div class="mode-row">`;
+  const modes = isPatch ? [["weekdays", "Fixed days"], ["interval", "Every N days"]] : [["cycle", "Cyclic course"], ["interval", "Every N days"]];
+  modes.forEach(([mode, label]) => {
+    html += `<button class="toggle-btn ${form.mode === mode ? "active" : ""}" onclick="setMode('${mode}')">${label}</button>`;
+  });
+  html += `</div>`;
+
+  if (isPatch && form.mode === "weekdays") {
+    html += `<div>
+      <p class="field-label" style="margin-bottom:6px;">Which days do you change it?</p>
+      <div class="weekday-grid">`;
+    WEEKDAY_LABELS.forEach((label, idx) => {
+      const active = form.weekdays.includes(idx);
+      html += `<button class="toggle-btn ${active ? "active" : ""}" onclick="toggleWeekday(${idx})">${label}</button>`;
+    });
+    html += `</div>`;
+    if (form.weekdays.length > 0) {
+      html += `<div class="day-time-list">`;
+      form.weekdays.forEach((d) => {
+        const t = form.weekdayTimeMap[d] || "09:00";
+        html += `<div class="field-row"><span class="field-label">Time on ${WEEKDAY_LABELS[d]}</span><input type="time" value="${t}" oninput="setWeekdayTime(${d}, this.value)" /></div>`;
+      });
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (form.mode === "interval") {
+    html += `<div class="interval-row">Every <input type="number" min="0.5" step="0.5" value="${form.frequencyDays}" oninput="setField('frequencyDays', this.value)" /> days</div>`;
+  }
+
+  if (!isPatch && form.mode === "cycle") {
+    html += `
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="field-row"><span class="field-label">Cycle length (days)</span><input type="number" min="1" value="${form.cycleLength}" oninput="setField('cycleLength', this.value)" style="width:64px;" /></div>
+        <div class="field-row"><span class="field-label">Day 1 of current cycle</span><input type="date" value="${form.cycleStart}" oninput="setField('cycleStart', this.value)" /></div>
+        <div class="field-row"><span class="field-label">Start pills on day</span><input type="number" min="1" value="${form.pillStartDay}" oninput="setField('pillStartDay', this.value)" style="width:64px;" /></div>
+        <div class="field-row"><span class="field-label">Take for how many days</span><input type="number" min="1" value="${form.pillDuration}" oninput="setField('pillDuration', this.value)" style="width:64px;" /></div>
+        <div class="field-row"><span class="field-label">Usual time</span><input type="time" value="${form.pillTime}" oninput="setField('pillTime', this.value)" /></div>
+      </div>
+    `;
+  }
+
+  html += `<div class="form-actions">
+      <button class="btn-cancel" onclick="cancelAdd()">Cancel</button>
+      <button class="btn-submit" onclick="handleAdd()">Add</button>
+    </div>`;
+  if (formError) html += `<p class="error-text">${esc(formError)}</p>`;
+  html += `</div>`;
+  return html;
+}
+
+// ---- event handlers (global so inline onclick/oninput can reach them) ----
+function toggleAdd() { showAdd = true; formError = ""; render(); }
+function cancelAdd() { showAdd = false; form = defaultForm("patch"); formError = ""; render(); }
+function setType(type) { form = defaultForm(type); render(); }
+function setMode(mode) { form.mode = mode; render(); }
+function toggleWeekday(d) {
+  form.weekdays = form.weekdays.includes(d) ? form.weekdays.filter((x) => x !== d) : [...form.weekdays, d].sort();
+  render();
+}
+function setWeekdayTime(d, val) { form.weekdayTimeMap[d] = val; }
+function setField(key, val) { form[key] = val; }
+
+function handleAdd() {
+  if (!form.name.trim()) { formError = "Give it a name first."; render(); return; }
+  if (form.type === "patch" && form.mode === "weekdays" && form.weekdays.length === 0) {
+    formError = "Pick at least one day."; render(); return;
+  }
+  const base = { id: uid(), type: form.type, name: form.name.trim(), lastDone: null };
+  let item;
+  if (form.type === "patch") {
+    if (form.mode === "weekdays") {
+      const weekdaySchedule = form.weekdays.map((d) => ({ day: d, time: form.weekdayTimeMap[d] || "09:00" }));
+      item = { ...base, scheduleType: "weekdays", weekdaySchedule, site: "left" };
+    } else {
+      item = { ...base, scheduleType: "interval", frequencyDays: Number(form.frequencyDays), site: "left" };
+    }
+  } else {
+    if (form.mode === "cycle") {
+      item = {
+        ...base, scheduleType: "cycle",
+        cycleLength: Number(form.cycleLength),
+        cycleStart: new Date(form.cycleStart).getTime(),
+        pillStartDay: Number(form.pillStartDay),
+        pillDuration: Number(form.pillDuration),
+        pillTime: form.pillTime,
+      };
+    } else {
+      item = { ...base, scheduleType: "interval", frequencyDays: Number(form.frequencyDays) };
+    }
+  }
+  items.push(item);
+  save();
+  showAdd = false;
+  form = defaultForm("patch");
+  formError = "";
+  render();
+}
+
+function markDone(id) {
+  items = items.map((it) => it.id === id
+    ? { ...it, lastDone: new Date().toISOString(), site: it.site ? (it.site === "left" ? "right" : "left") : null }
+    : it
+  );
+  save();
+  render();
+}
+
+function removeItem(id) {
+  items = items.filter((it) => it.id !== id);
+  save();
+  render();
+}
+
+render();
+setInterval(render, 30000);
+</script>
+</body>
+</html>
