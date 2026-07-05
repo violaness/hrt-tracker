@@ -95,11 +95,27 @@
   .empty p:first-child { font-size: 17px; margin: 0 0 4px; }
   .empty p:last-child { font-size: 13px; color: var(--muted); margin: 0; }
   .backup-link { background: none; border: none; color: var(--muted); font-size: 12px; text-decoration: underline; cursor: pointer; padding: 0; margin-bottom: 20px; }
+  .tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; margin-bottom: 20px; }
+  .tab-btn { flex: 1; border: none; background: none; border-radius: 9px; padding: 9px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted); }
+  .tab-btn.active { background: var(--ink); color: #fff; }
   .modal-overlay { position: fixed; inset: 0; background: rgba(43,37,48,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
   .modal-card { background: var(--card); border-radius: 16px; padding: 24px; max-width: 360px; width: 100%; }
   .modal-title { font-size: 20px; font-weight: 700; margin: 0 0 10px; }
   .modal-desc { font-size: 13px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
   .modal-btn { width: 100%; border: none; border-radius: 10px; padding: 13px; font-size: 14px; font-weight: 600; color: #fff; cursor: pointer; margin-bottom: 10px; }
+  .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 0 2px; }
+  .cal-nav { background: none; border: none; font-size: 20px; color: var(--muted); cursor: pointer; padding: 2px 12px; line-height: 1; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal-weekdays { margin-bottom: 4px; }
+  .cal-wd { text-align: center; font-size: 10px; color: var(--muted); text-transform: uppercase; }
+  .cal-cell { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 8px; }
+  .cal-cell.today { background: #F7ECEF; }
+  .cal-cell.empty-day { visibility: hidden; }
+  .cal-day-num { font-size: 11px; }
+  .cal-dots { display: flex; gap: 2px; margin-top: 2px; height: 6px; }
+  .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .cal-legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--muted); align-items: center; flex-wrap: wrap; }
+  .cal-legend .cal-dot { margin-right: 4px; }
 </style>
 </head>
 <body>
@@ -148,12 +164,24 @@ const STORAGE_KEY = "hrt-tracker-items";
 
 let items = [];
 let periods = [];
+let history = [];
 try { periods = JSON.parse(storageGet("hrt-tracker-periods") || "[]"); } catch (e) { periods = []; }
 function savePeriods() {
   try { storageSet("hrt-tracker-periods", JSON.stringify(periods)); } catch (e) {}
 }
+try { history = JSON.parse(storageGet("hrt-tracker-history") || "[]"); } catch (e) { history = []; }
+function saveHistory() {
+  try { storageSet("hrt-tracker-history", JSON.stringify(history)); } catch (e) {}
+}
 try { items = JSON.parse(storageGet(STORAGE_KEY) || "[]"); } catch (e) { items = []; }
 
+function localDateKey(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+let calendarOffset = 0;
+let activeTab = "tracker";
 let showAdd = false;
 let showBackup = false;
 let formError = "";
@@ -258,18 +286,51 @@ function getInfo(item, now) {
   return { state: "unset", sortTs: -Infinity };
 }
 
-function periodHtml(now) {
-  const sortedPeriods = [...periods].sort((a, b) => new Date(b) - new Date(a));
-  const lastStart = sortedPeriods[0] ? new Date(sortedPeriods[0]).getTime() : null;
+function periodStart(p) { return typeof p === "string" ? p : p.start; }
+function periodDuration(p) { return typeof p === "string" ? null : p.duration; }
 
-  let avgLength = 28;
-  if (sortedPeriods.length >= 2) {
-    const gaps = [];
-    for (let i = 0; i < sortedPeriods.length - 1 && i < 5; i++) {
-      gaps.push((new Date(sortedPeriods[i]) - new Date(sortedPeriods[i + 1])) / DAY);
-    }
-    avgLength = Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length);
+function cycleLengthsChrono() {
+  const sortedAsc = [...periods].sort((a, b) => new Date(periodStart(a)) - new Date(periodStart(b)));
+  const lengths = [];
+  for (let i = 1; i < sortedAsc.length; i++) {
+    lengths.push(Math.round((new Date(periodStart(sortedAsc[i])) - new Date(periodStart(sortedAsc[i - 1]))) / DAY));
   }
+  return lengths;
+}
+
+function buildCycleChartSvg(lengths) {
+  const w = 320, h = 130, pad = 24;
+  if (lengths.length === 0) {
+    return `<p style="font-size:12px;color:var(--muted);text-align:center;padding:20px 0;">Log at least two periods to see your cycle length chart.</p>`;
+  }
+  const minV = Math.min(...lengths);
+  const maxV = Math.max(...lengths);
+  const range = maxV - minV || 1;
+  const avg = Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length);
+  const xStep = lengths.length > 1 ? (w - 2 * pad) / (lengths.length - 1) : 0;
+  const yOf = (v) => h - pad - ((v - minV) / range) * (h - 2 * pad);
+  const points = lengths.map((v, i) => `${pad + i * xStep},${yOf(v)}`).join(" ");
+  const dots = lengths.map((v, i) => `<circle cx="${pad + i * xStep}" cy="${yOf(v)}" r="3" fill="#7A9B76" />`).join("");
+  const avgY = yOf(avg);
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:130px;">
+      <line x1="${pad}" y1="${avgY}" x2="${w - pad}" y2="${avgY}" stroke="#C77B3F" stroke-width="1.5" stroke-dasharray="5 4" />
+      <text x="${w - pad}" y="${avgY - 6}" font-size="11" fill="#C77B3F" text-anchor="end" font-family="IBM Plex Mono, monospace">${avg}d avg</text>
+      <polyline points="${points}" fill="none" stroke="#7A9B76" stroke-width="2" />
+      ${dots}
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;padding:0 2px;">
+      <span>Min: ${minV}d</span><span>Max: ${maxV}d</span>
+    </div>
+  `;
+}
+
+function periodTabHtml(now) {
+  const sortedDesc = [...periods].sort((a, b) => new Date(periodStart(b)) - new Date(periodStart(a)));
+  const lastStart = sortedDesc[0] ? new Date(periodStart(sortedDesc[0])).getTime() : null;
+  const lengths = cycleLengthsChrono();
+  const avgLength = lengths.length > 0 ? Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length) : 28;
 
   let statusHtml;
   if (!lastStart) {
@@ -281,40 +342,65 @@ function periodHtml(now) {
     const untilNext = predictedNext - startOfDay(now);
     statusHtml = `
       <p class="hero-primary mono" style="font-size:32px;color:var(--sage);">Day ${cycleDay}</p>
-      <p class="hero-secondary">Next period estimated ${untilNext <= 0 ? "around now" : formatCountdown(untilNext) + " away"} · ${formatDateShort(predictedNext)}${sortedPeriods.length >= 2 ? ` · avg ${avgLength}d cycle` : ""}</p>
+      <p class="hero-secondary">Next period estimated ${untilNext <= 0 ? "around now" : formatCountdown(untilNext) + " away"} · ${formatDateShort(predictedNext)}${lengths.length > 0 ? ` · ${avgLength}d avg cycle` : ""}</p>
     `;
   }
 
-  const history = sortedPeriods.slice(0, 6).map((d) => `
-    <div class="row">
-      <p class="row-name">${formatDateShort(new Date(d).getTime())}</p>
-      <button class="icon-btn" style="color:var(--dim);" onclick="removePeriod('${d}')" aria-label="Remove">✕</button>
-    </div>
-  `).join("");
+  const rows = sortedDesc.map((p, i) => {
+    const start = periodStart(p);
+    const dur = periodDuration(p);
+    const cycle = i === sortedDesc.length - 1 ? "N/A" : Math.round((new Date(periodStart(sortedDesc[i])) - new Date(periodStart(sortedDesc[i + 1]))) / DAY) + "d";
+    return `
+      <div class="row">
+        <div style="min-width:0;">
+          <p class="row-name">${formatDateShort(new Date(start).getTime())}</p>
+          <p class="row-sub mono" style="color:var(--muted);">${dur ? dur + "d duration" : "duration not set"} · cycle ${cycle}</p>
+        </div>
+        <div class="row-actions">
+          <button class="icon-btn" style="background:#7A9B761A;color:var(--sage);" onclick="editDuration('${start}')" aria-label="Edit duration">✎</button>
+          <button class="icon-btn" style="color:var(--dim);" onclick="removePeriod('${start}')" aria-label="Remove">✕</button>
+        </div>
+      </div>
+    `;
+  }).join("");
 
   return `
+    <div class="card" style="margin-bottom:20px;">
+      ${statusHtml}
+      <button class="btn" style="background:var(--sage);" onclick="logPeriod()">Log period started today</button>
+    </div>
     <div class="section">
-      <p class="section-title" style="color:var(--sage);">Period</p>
-      <div class="card" style="margin-bottom:8px;">
-        ${statusHtml}
-        <button class="btn" style="background:var(--sage);" onclick="logPeriod()">Log period started today</button>
-      </div>
-      ${history}
+      <p class="section-title" style="color:var(--sage);">Cycle length</p>
+      <div class="card">${buildCycleChartSvg(lengths)}</div>
+    </div>
+    <div class="section">
+      <p class="section-title" style="color:var(--sage);">History</p>
+      ${rows || `<p style="font-size:13px;color:var(--muted);padding:0 2px;">Nothing logged yet.</p>`}
     </div>
   `;
 }
 
 function logPeriod() {
   const today = new Date().toDateString();
-  if (!periods.some((d) => new Date(d).toDateString() === today)) {
-    periods.push(new Date().toISOString());
-    savePeriods();
-  }
+  if (periods.some((p) => new Date(periodStart(p)).toDateString() === today)) { render(); return; }
+  const raw = window.prompt("How many days did/will it last? (optional — leave blank to skip)");
+  const duration = raw && !isNaN(Number(raw)) && raw.trim() !== "" ? Number(raw) : null;
+  periods.push({ start: new Date().toISOString(), duration });
+  savePeriods();
   render();
 }
 
-function removePeriod(d) {
-  periods = periods.filter((x) => x !== d);
+function editDuration(start) {
+  const raw = window.prompt("How many days did it last?");
+  if (raw === null) return;
+  const duration = !isNaN(Number(raw)) && raw.trim() !== "" ? Number(raw) : null;
+  periods = periods.map((p) => periodStart(p) === start ? { start, duration } : p);
+  savePeriods();
+  render();
+}
+
+function removePeriod(start) {
+  periods = periods.filter((p) => periodStart(p) !== start);
   savePeriods();
   render();
 }
@@ -339,7 +425,7 @@ function toggleBackup() {
 }
 
 function backupAllData() {
-  const payload = { app: "hrt-tracker", exportedAt: new Date().toISOString(), items, periods };
+  const payload = { app: "hrt-tracker", exportedAt: new Date().toISOString(), items, periods, history };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -366,8 +452,10 @@ function handleRestoreFile(input) {
       const data = JSON.parse(e.target.result);
       if (Array.isArray(data.items)) items = data.items;
       if (Array.isArray(data.periods)) periods = data.periods;
+      if (Array.isArray(data.history)) history = data.history;
       save();
       savePeriods();
+      saveHistory();
       showBackup = false;
       render();
     } catch (err) {
@@ -376,6 +464,69 @@ function handleRestoreFile(input) {
   };
   reader.readAsText(file);
   input.value = "";
+}
+
+function calendarHtml() {
+  const base = new Date();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + calendarOffset);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthLabel = base.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const todayKey = localDateKey(Date.now());
+
+  const dayMarks = {};
+  history.forEach((h) => {
+    if (h.date.slice(0, 4) == year && Number(h.date.slice(5, 7)) - 1 === month) {
+      dayMarks[h.date] = dayMarks[h.date] || {};
+      dayMarks[h.date][h.type] = true;
+    }
+  });
+  periods.forEach((p) => {
+    const key = localDateKey(new Date(p).getTime());
+    if (key.slice(0, 4) == year && Number(key.slice(5, 7)) - 1 === month) {
+      dayMarks[key] = dayMarks[key] || {};
+      dayMarks[key].period = true;
+    }
+  });
+
+  let cells = "";
+  for (let i = 0; i < startWeekday; i++) cells += `<div class="cal-cell empty-day"></div>`;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const marks = dayMarks[key] || {};
+    let dots = "";
+    if (marks.patch) dots += `<span class="cal-dot" style="background:var(--rose);"></span>`;
+    if (marks.pill) dots += `<span class="cal-dot" style="background:var(--slate);"></span>`;
+    if (marks.period) dots += `<span class="cal-dot" style="background:var(--sage);"></span>`;
+    cells += `<div class="cal-cell ${key === todayKey ? "today" : ""}"><span class="cal-day-num mono">${day}</span><div class="cal-dots">${dots}</div></div>`;
+  }
+
+  return `
+    <div class="section">
+      <div class="cal-header">
+        <button class="cal-nav" onclick="changeMonth(-1)" aria-label="Previous month">‹</button>
+        <p class="section-title" style="margin:0;">${monthLabel}</p>
+        <button class="cal-nav" onclick="changeMonth(1)" aria-label="Next month">›</button>
+      </div>
+      <div class="card">
+        <div class="cal-grid cal-weekdays">${WEEKDAY_LABELS.map((w) => `<div class="cal-wd">${w}</div>`).join("")}</div>
+        <div class="cal-grid">${cells}</div>
+        <div class="cal-legend">
+          <span><span class="cal-dot" style="background:var(--rose);"></span>Patch</span>
+          <span><span class="cal-dot" style="background:var(--slate);"></span>Pill</span>
+          <span><span class="cal-dot" style="background:var(--sage);"></span>Period</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function changeMonth(delta) {
+  calendarOffset += delta;
+  render();
 }
 
 function esc(s) {
@@ -394,26 +545,39 @@ function render() {
     <p class="eyebrow">On schedule</p>
     <h1 class="display">Keeping You Level</h1>
     <button class="backup-link" onclick="toggleBackup()">Back up & restore</button>
-  `;
-
-  html += hero ? heroHtml(hero, now) : `
-    <div class="card empty" style="margin-bottom:32px;">
-      <p class="display">Nothing tracked yet</p>
-      <p>Add a patch or pill below to get started.</p>
+    <div class="tabs">
+      <button class="tab-btn ${activeTab === "tracker" ? "active" : ""}" onclick="setTab('tracker')">Tracker</button>
+      <button class="tab-btn ${activeTab === "period" ? "active" : ""}" onclick="setTab('period')">Period</button>
     </div>
   `;
 
-  html += sectionHtml("Patches", "#B5748C", patches, now);
-  html += sectionHtml("Pills", "#7C8A9E", pills, now);
-  html += periodHtml(now);
+  if (activeTab === "period") {
+    html += periodTabHtml(now);
+  } else {
+    html += hero ? heroHtml(hero, now) : `
+      <div class="card empty" style="margin-bottom:32px;">
+        <p class="display">Nothing tracked yet</p>
+        <p>Add a patch or pill below to get started.</p>
+      </div>
+    `;
 
-  html += `<div style="margin-top:24px;">`;
-  html += showAdd ? formHtml() : `<button class="add-toggle" onclick="toggleAdd()">+ Add medication</button>`;
-  html += `</div>`;
+    html += calendarHtml();
+    html += sectionHtml("Patches", "#B5748C", patches, now);
+    html += sectionHtml("Pills", "#7C8A9E", pills, now);
+
+    html += `<div style="margin-top:24px;">`;
+    html += showAdd ? formHtml() : `<button class="add-toggle" onclick="toggleAdd()">+ Add medication</button>`;
+    html += `</div>`;
+  }
 
   if (showBackup) html += backupModalHtml();
 
   document.getElementById("app").innerHTML = html;
+}
+
+function setTab(t) {
+  activeTab = t;
+  render();
 }
 
 function heroHtml(entry, now) {
@@ -604,10 +768,15 @@ function swapSide(id) {
 }
 
 function markDone(id) {
+  const target = items.find((it) => it.id === id);
   items = items.map((it) => it.id === id
     ? { ...it, lastDone: new Date().toISOString(), site: it.site ? (it.site === "left" ? "right" : "left") : null }
     : it
   );
+  if (target) {
+    history.push({ date: localDateKey(Date.now()), type: target.type, name: target.name });
+    saveHistory();
+  }
   save();
   render();
 }
