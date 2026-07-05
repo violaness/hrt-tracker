@@ -112,8 +112,8 @@
   .cal-cell.today { background: #F7ECEF; }
   .cal-cell.empty-day { visibility: hidden; }
   .cal-day-num { font-size: 11px; }
-  .cal-dots { display: flex; gap: 2px; margin-top: 2px; height: 6px; }
-  .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .cal-dots { display: flex; gap: 3px; margin-top: 2px; height: 9px; }
+  .cal-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
   .cal-legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--muted); align-items: center; flex-wrap: wrap; }
   .cal-legend .cal-dot { margin-right: 4px; }
 </style>
@@ -620,10 +620,12 @@ function heroHtml(entry, now) {
       ${editingId === item.id ? `
         <div style="margin-top:14px;">
           <input type="datetime-local" id="edit-time-${item.id}" value="${toDatetimeInputValue(item.lastDone ? new Date(item.lastDone).getTime() : Date.now())}" style="width:100%;margin-bottom:8px;" />
-          <div style="display:flex;gap:8px;">
-            <button class="btn-cancel" style="flex:1;border-radius:8px;padding:10px;" onclick="cancelEditTime()">Cancel</button>
-            <button class="btn-submit" style="flex:1;border-radius:8px;padding:10px;" onclick="saveEditTime('${item.id}')">Save time</button>
+          <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">"Update most recent" corrects when you last did this. "Log a missed day" adds an extra entry for a day you forgot to tick off, without disturbing your most recent dose.</p>
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <button class="btn-cancel" style="flex:1;border-radius:8px;padding:10px;font-size:13px;" onclick="cancelEditTime()">Cancel</button>
+            <button class="btn-submit" style="flex:1;border-radius:8px;padding:10px;font-size:13px;" onclick="saveEditTime('${item.id}')">Update most recent</button>
           </div>
+          <button class="modal-btn" style="background:var(--sage);margin-bottom:0;" onclick="saveMissedDay('${item.id}')">Log a missed day</button>
         </div>
       ` : `
         ${buttonLabel ? `<button class="btn" style="background:${color};" onclick="markDone('${item.id}')">✓ ${buttonLabel}</button>` : ""}
@@ -659,8 +661,9 @@ function sectionHtml(title, color, entries, now) {
         <div class="row" style="background:#F7ECEF;flex-direction:column;align-items:stretch;gap:8px;">
           <input type="datetime-local" id="edit-time-${item.id}" value="${toDatetimeInputValue(item.lastDone ? new Date(item.lastDone).getTime() : Date.now())}" />
           <div style="display:flex;gap:8px;">
-            <button class="btn-cancel" style="flex:1;border-radius:8px;padding:8px;" onclick="cancelEditTime()">Cancel</button>
-            <button class="btn-submit" style="flex:1;border-radius:8px;padding:8px;" onclick="saveEditTime('${item.id}')">Save</button>
+            <button class="btn-cancel" style="flex:1;border-radius:8px;padding:8px;font-size:12px;" onclick="cancelEditTime()">Cancel</button>
+            <button class="btn-submit" style="flex:1;border-radius:8px;padding:8px;font-size:12px;" onclick="saveEditTime('${item.id}')">Update most recent</button>
+            <button class="btn-submit" style="flex:1;border-radius:8px;padding:8px;font-size:12px;background:var(--sage);" onclick="saveMissedDay('${item.id}')">Log missed day</button>
           </div>
         </div>
       ` : ""}
@@ -838,6 +841,30 @@ function saveEditTime(id) {
 
   items = items.map((it) => it.id === id ? { ...it, lastDone: new Date(newTs).toISOString() } : it);
   save();
+  editingId = null;
+  render();
+}
+
+function saveMissedDay(id) {
+  const input = document.getElementById("edit-time-" + id);
+  if (!input || !input.value) { editingId = null; render(); return; }
+  const ts = new Date(input.value).getTime();
+  if (isNaN(ts)) { editingId = null; render(); return; }
+
+  const item = items.find((it) => it.id === id);
+  if (!item) { editingId = null; render(); return; }
+
+  const key = localDateKey(ts);
+  if (!history.some((h) => h.itemId === id && h.date === key)) {
+    history.push({ date: key, type: item.type, name: item.name, itemId: id });
+    saveHistory();
+  }
+
+  if (!item.lastDone || ts > new Date(item.lastDone).getTime()) {
+    items = items.map((it) => it.id === id ? { ...it, lastDone: new Date(ts).toISOString() } : it);
+    save();
+  }
+
   editingId = null;
   render();
 }
