@@ -618,21 +618,13 @@ function heroHtml(entry, now) {
       <p class="hero-primary mono" style="color:${statusColor};">${primary}</p>
       <p class="hero-secondary">${secondary}</p>
       ${editingId === item.id ? `
-        <div style="margin-top:14px;">
-          <input type="datetime-local" id="edit-time-${item.id}" value="${toDatetimeInputValue(item.lastDone ? new Date(item.lastDone).getTime() : Date.now())}" style="width:100%;margin-bottom:8px;" />
-          <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">"Update most recent" corrects when you last did this. "Log a missed day" adds an extra entry for a day you forgot to tick off, without disturbing your most recent dose.</p>
-          <div style="display:flex;gap:8px;margin-bottom:8px;">
-            <button class="btn-cancel" style="flex:1;border-radius:8px;padding:10px;font-size:13px;" onclick="cancelEditTime()">Cancel</button>
-            <button class="btn-submit" style="flex:1;border-radius:8px;padding:10px;font-size:13px;" onclick="saveEditTime('${item.id}')">Update most recent</button>
-          </div>
-          <button class="modal-btn" style="background:var(--sage);margin-bottom:0;" onclick="saveMissedDay('${item.id}')">Log a missed day</button>
-        </div>
+        <p class="hero-secondary" style="margin-top:14px;color:var(--sage);">↓ Editing the time for this below</p>
       ` : `
         ${buttonLabel ? `<button class="btn" style="background:${color};" onclick="markDone('${item.id}')">✓ ${buttonLabel}</button>` : ""}
-        <button class="backup-link" style="margin:10px 0 0;display:block;" onclick="openEditTime('${item.id}')">Log for a different time</button>
+        ${wasMarkedToday(item) ? `<button class="backup-link" style="margin-top:8px;display:block;" onclick="undoToday('${item.id}')">↩ Undo today's mark</button>` : ""}
+        <button class="backup-link" style="margin:6px 0 0;display:block;" onclick="openEditTime('${item.id}')">Log for a different time</button>
       `}
-    </div>
-  `;
+    </div>`;
 }
 
 function sectionHtml(title, color, entries, now) {
@@ -653,6 +645,7 @@ function sectionHtml(title, color, entries, now) {
         </div>
         <div class="row-actions">
           <button class="icon-btn" style="background:${color}1A;color:${color};" onclick="markDone('${item.id}')" aria-label="Mark done">✓</button>
+          ${wasMarkedToday(item) ? `<button class="icon-btn" style="color:var(--terracotta);" onclick="undoToday('${item.id}')" aria-label="Undo today">↩</button>` : ""}
           <button class="icon-btn" style="color:var(--muted);" onclick="openEditTime('${item.id}')" aria-label="Edit time">🕐</button>
           <button class="icon-btn" style="color:var(--dim);" onclick="removeItem('${item.id}')" aria-label="Remove">✕</button>
         </div>
@@ -798,16 +791,39 @@ function swapSide(id) {
   render();
 }
 
+function wasMarkedToday(item) {
+  return !!(item.lastDone && localDateKey(new Date(item.lastDone).getTime()) === localDateKey(Date.now()));
+}
+
 function markDone(id) {
   const target = items.find((it) => it.id === id);
   items = items.map((it) => it.id === id
-    ? { ...it, lastDone: new Date().toISOString(), site: it.site ? (it.site === "left" ? "right" : "left") : null }
+    ? { ...it, lastDone: new Date().toISOString(), site: it.site ? (it.site === "left" ? "right" : "left") : null, _prevLastDone: it.lastDone || null, _prevSite: it.site || null }
     : it
   );
   if (target) {
     history.push({ date: localDateKey(Date.now()), type: target.type, name: target.name, itemId: id });
     saveHistory();
   }
+  save();
+  render();
+}
+
+function undoToday(id) {
+  const item = items.find((it) => it.id === id);
+  if (!item || !wasMarkedToday(item)) return;
+  const todayKey = localDateKey(Date.now());
+
+  const idx = history.findIndex((h) => h.itemId === id && h.date === todayKey);
+  if (idx !== -1) {
+    history.splice(idx, 1);
+    saveHistory();
+  }
+
+  items = items.map((it) => it.id === id
+    ? { ...it, lastDone: it._prevLastDone !== undefined ? it._prevLastDone : null, site: it._prevSite !== undefined ? it._prevSite : it.site, _prevLastDone: undefined, _prevSite: undefined }
+    : it
+  );
   save();
   render();
 }
