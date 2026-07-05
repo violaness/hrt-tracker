@@ -849,7 +849,9 @@ function removeItem(id) {
 }
 
 render();
-setInterval(render, 30000);
+setInterval(() => {
+  if (editingId === null && !showAdd) render();
+}, 30000);
 </script>
 </body>
 </html>
