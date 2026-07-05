@@ -189,6 +189,7 @@ function toDatetimeInputValue(ts) {
 let calendarOffset = 0;
 let activeTab = "tracker";
 let editingId = null;
+let editingNameId = null;
 let showAdd = false;
 let showBackup = false;
 let formError = "";
@@ -640,7 +641,9 @@ function sectionHtml(title, color, entries, now) {
     return `
       <div class="row">
         <div style="min-width:0;">
-          <p class="row-name">${esc(item.name)}</p>
+          <button onclick="openEditName('${item.id}')" style="background:none;border:none;padding:0;text-align:left;cursor:pointer;" aria-label="Edit name">
+            <p class="row-name" style="text-decoration:underline;text-decoration-color:var(--line);">${esc(item.name)}</p>
+          </button>
           <p class="row-sub mono" style="color:${statusColor};">${sub}</p>
         </div>
         <div class="row-actions">
@@ -650,6 +653,15 @@ function sectionHtml(title, color, entries, now) {
           <button class="icon-btn" style="color:var(--dim);" onclick="removeItem('${item.id}')" aria-label="Remove">✕</button>
         </div>
       </div>
+      ${editingNameId === item.id ? `
+        <div class="row" style="background:#F7ECEF;flex-direction:column;align-items:stretch;gap:8px;">
+          <input type="text" id="edit-name-${item.id}" value="${esc(item.name)}" class="full" />
+          <div style="display:flex;gap:8px;">
+            <button class="btn-cancel" style="flex:1;border-radius:8px;padding:8px;font-size:12px;" onclick="cancelEditName()">Cancel</button>
+            <button class="btn-submit" style="flex:1;border-radius:8px;padding:8px;font-size:12px;" onclick="saveEditName('${item.id}')">Save name</button>
+          </div>
+        </div>
+      ` : ""}
       ${editingId === item.id ? `
         <div class="row" style="background:#F7ECEF;flex-direction:column;align-items:stretch;gap:8px;">
           <input type="datetime-local" id="edit-time-${item.id}" value="${toDatetimeInputValue(item.lastDone ? new Date(item.lastDone).getTime() : Date.now())}" />
@@ -825,6 +837,30 @@ function undoToday(id) {
     : it
   );
   save();
+  render();
+}
+
+function openEditName(id) {
+  editingNameId = id;
+  render();
+}
+
+function cancelEditName() {
+  editingNameId = null;
+  render();
+}
+
+function saveEditName(id) {
+  const input = document.getElementById("edit-name-" + id);
+  if (!input) { editingNameId = null; render(); return; }
+  const newName = input.value.trim();
+  if (!newName) { editingNameId = null; render(); return; }
+
+  items = items.map((it) => it.id === id ? { ...it, name: newName } : it);
+  history = history.map((h) => h.itemId === id ? { ...h, name: newName } : h);
+  save();
+  saveHistory();
+  editingNameId = null;
   render();
 }
 
