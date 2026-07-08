@@ -827,19 +827,22 @@ function swapSide(id) {
 }
 
 function wasMarkedToday(item) {
-  return !!(item.lastDone && localDateKey(new Date(item.lastDone).getTime()) === localDateKey(Date.now()));
+  return item._actionAt !== undefined && (Date.now() - item._actionAt) < DAY;
 }
 
 function markDone(id) {
   const target = items.find((it) => it.id === id);
+  if (!target) return;
+  const now = Date.now();
+  const info = getInfo(target, now);
+  const effectiveTs = (info.state === "overdue" && info.dueTs) ? info.dueTs : now;
+
   items = items.map((it) => it.id === id
-    ? { ...it, lastDone: new Date().toISOString(), site: it.site ? (it.site === "left" ? "right" : "left") : null, _prevLastDone: it.lastDone || null, _prevSite: it.site || null }
+    ? { ...it, lastDone: new Date(effectiveTs).toISOString(), site: it.site ? (it.site === "left" ? "right" : "left") : null, _prevLastDone: it.lastDone || null, _prevSite: it.site || null, _actionAt: now }
     : it
   );
-  if (target) {
-    history.push({ date: localDateKey(Date.now()), type: target.type, name: target.name, itemId: id });
-    saveHistory();
-  }
+  history.push({ date: localDateKey(effectiveTs), type: target.type, name: target.name, itemId: id });
+  saveHistory();
   save();
   render();
 }
@@ -847,16 +850,18 @@ function markDone(id) {
 function undoToday(id) {
   const item = items.find((it) => it.id === id);
   if (!item || !wasMarkedToday(item)) return;
-  const todayKey = localDateKey(Date.now());
+  const entryKey = item.lastDone ? localDateKey(new Date(item.lastDone).getTime()) : null;
 
-  const idx = history.findIndex((h) => h.itemId === id && h.date === todayKey);
-  if (idx !== -1) {
-    history.splice(idx, 1);
-    saveHistory();
+  if (entryKey) {
+    const idx = history.findIndex((h) => h.itemId === id && h.date === entryKey);
+    if (idx !== -1) {
+      history.splice(idx, 1);
+      saveHistory();
+    }
   }
 
   items = items.map((it) => it.id === id
-    ? { ...it, lastDone: it._prevLastDone !== undefined ? it._prevLastDone : null, site: it._prevSite !== undefined ? it._prevSite : it.site, _prevLastDone: undefined, _prevSite: undefined }
+    ? { ...it, lastDone: it._prevLastDone !== undefined ? it._prevLastDone : null, site: it._prevSite !== undefined ? it._prevSite : it.site, _prevLastDone: undefined, _prevSite: undefined, _actionAt: undefined }
     : it
   );
   save();
