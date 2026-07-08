@@ -204,6 +204,8 @@ function toDatetimeInputValue(ts) {
 
 let calendarOffset = 0;
 let activeTab = "tracker";
+let appTitle = storageGet("hrt-tracker-title") || "Keeping You Level";
+let editingTitle = false;
 let editingId = null;
 let editingNameId = null;
 let showAdd = false;
@@ -590,7 +592,18 @@ function render() {
 
   let html = `
     <p class="eyebrow">On schedule</p>
-    <h1 class="display">Keeping You Level</h1>
+    <button onclick="openEditTitle()" style="background:none;border:none;padding:0;text-align:left;cursor:pointer;display:block;" aria-label="Edit title">
+      <h1 class="display" style="text-decoration:underline;text-decoration-color:var(--line);text-decoration-thickness:1px;">${esc(appTitle)}</h1>
+    </button>
+    ${editingTitle ? `
+      <div style="margin-bottom:16px;">
+        <input type="text" id="edit-title-input" value="${esc(appTitle)}" class="full" style="margin-bottom:8px;" />
+        <div style="display:flex;gap:8px;">
+          <button class="btn-cancel" style="flex:1;border-radius:8px;padding:9px;" onclick="cancelEditTitle()">Cancel</button>
+          <button class="btn-submit" style="flex:1;border-radius:8px;padding:9px;" onclick="saveEditTitle()">Save title</button>
+        </div>
+      </div>
+    ` : ""}
     <button class="backup-link" onclick="toggleBackup()">Back up & restore</button>
     <div class="tabs">
       <button class="tab-btn ${activeTab === "tracker" ? "active" : ""}" onclick="setTab('tracker')">Tracker</button>
@@ -620,6 +633,26 @@ function render() {
   if (showBackup) html += backupModalHtml();
 
   document.getElementById("app").innerHTML = html;
+}
+
+function openEditTitle() {
+  editingTitle = true;
+  render();
+}
+
+function cancelEditTitle() {
+  editingTitle = false;
+  render();
+}
+
+function saveEditTitle() {
+  const input = document.getElementById("edit-title-input");
+  if (input && input.value.trim()) {
+    appTitle = input.value.trim();
+    storageSet("hrt-tracker-title", appTitle);
+  }
+  editingTitle = false;
+  render();
 }
 
 function setTab(t) {
@@ -878,7 +911,7 @@ function sectionHtml(title, color, entries, now) {
         </div>
       </div>
       ${item.scheduleType === "cycle" && info.state === "active" ? `<div class="row" style="border-top:none;padding-top:0;">${dayChecklistHtml(item, now)}</div>` : ""}
-      ${item.scheduleType === "weekdays" ? `<div class="row" style="border-top:none;padding-top:0;">${patchMonthChecklistHtml(item, now)}</div>` : ""}
+      ${item.scheduleType === "weekdays" ? `<div class="row" style="border-top:none;padding-top:0;">${patchRingHtml(item, now)}</div>` : ""}
       ${editingNameId === item.id ? `
         <div class="row" style="background:#F7ECEF;flex-direction:column;align-items:stretch;gap:8px;">
           <input type="text" id="edit-name-${item.id}" value="${esc(item.name)}" class="full" />
