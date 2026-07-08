@@ -207,6 +207,7 @@ function toDatetimeInputValue(ts) {
 }
 
 let calendarOffset = 0;
+let periodRingOffset = 0;
 let activeTab = "tracker";
 let appTitle = storageGet("hrt-tracker-title") || "Keeping You Level";
 let editingTitle = false;
@@ -379,25 +380,101 @@ function buildCycleChartSvg(lengths) {
   `;
 }
 
-function periodTabHtml(now) {
+function changePeriodMonth(delta) {
+  periodRingOffset += delta;
+  render();
+}
+
+function togglePeriodDay(ts) {
+  const key = localDateKey(ts);
+  const idx = periods.findIndex((p) => localDateKey(new Date(periodStart(p)).getTime()) === key);
+  if (idx !== -1) {
+    periods.splice(idx, 1);
+  } else {
+    periods.push({ start: new Date(ts).toISOString(), duration: null });
+  }
+  savePeriods();
+  render();
+}
+
+function periodRingHtml(now) {
+  const base = new Date(now);
+  base.setDate(1);
+  base.setMonth(base.getMonth() + periodRingOffset);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayDate = periodRingOffset === 0 ? new Date(now).getDate() : null;
+  const monthLabel = base.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const size = 300, center = size / 2, R = 112;
+
   const sortedDesc = [...periods].sort((a, b) => new Date(periodStart(b)) - new Date(periodStart(a)));
   const lastStart = sortedDesc[0] ? new Date(periodStart(sortedDesc[0])).getTime() : null;
   const lengths = cycleLengthsChrono();
-  const avgLength = lengths.length > 0 ? Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length) : 28;
+  const avgLength = lengths.length > 0 ? Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length) : null;
+  const loggedThisMonth = periods.filter((p) => {
+    const d2 = new Date(periodStart(p));
+    return d2.getFullYear() === year && d2.getMonth() === month;
+  }).length;
 
-  let statusHtml;
-  if (!lastStart) {
-    statusHtml = `<p class="hero-primary mono" style="font-size:22px;color:var(--sage);">Not logged yet</p>
-      <p class="hero-secondary">Log day 1 of your period to start tracking.</p>`;
-  } else {
-    const cycleDay = Math.floor((startOfDay(now) - startOfDay(lastStart)) / DAY) + 1;
-    const predictedNext = startOfDay(lastStart) + avgLength * DAY;
-    const untilNext = predictedNext - startOfDay(now);
-    statusHtml = `
-      <p class="hero-primary mono" style="font-size:32px;color:var(--sage);">Day ${cycleDay}</p>
-      <p class="hero-secondary">Next period estimated ${untilNext <= 0 ? "around now" : formatCountdown(untilNext) + " away"} · ${formatDateShort(predictedNext)}${lengths.length > 0 ? ` · ${avgLength}d avg cycle` : ""}</p>
-    `;
+  let nodes = "";
+  for (let day = 1; day <= daysInMonth; day++) {
+    const angle = ((day - 1) / daysInMonth) * 360 - 90;
+    const rad = (angle * Math.PI) / 180;
+    const x = center + R * Math.cos(rad);
+    const y = center + R * Math.sin(rad);
+    const dayStart = new Date(year, month, day).getTime();
+    const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const logged = periods.some((p) => localDateKey(new Date(periodStart(p)).getTime()) === key);
+    const isFuture = dayStart > now;
+    const isToday = day === todayDate;
+
+    if (logged) {
+      nodes += `<button class="ring-day" style="left:${x}px;top:${y}px;background:var(--sage);border-color:var(--sage);color:#fff;" onclick="togglePeriodDay(${dayStart})">✓</button>`;
+    } else if (isFuture) {
+      nodes += `<span class="ring-label" style="left:${x}px;top:${y}px;">${day}</span>`;
+    } else {
+      nodes += `<button class="ring-day" style="left:${x}px;top:${y}px;background:#fff;border-color:var(--line);color:var(--muted);${isToday ? "font-weight:700;" : ""}" onclick="togglePeriodDay(${dayStart})">${day}</button>`;
+    }
   }
+
+  let centerLabel, centerDate, centerSub;
+  if (periodRingOffset === 0) {
+    centerLabel = "Today";
+    centerDate = new Date(now).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    centerSub = lastStart ? `Day ${Math.floor((startOfDay(now) - startOfDay(lastStart)) / DAY) + 1}` : "Not logged yet";
+  } else {
+    centerLabel = monthLabel.split(" ")[0];
+    centerDate = year;
+    centerSub = loggedThisMonth > 0 ? `${loggedThisMonth} logged` : "Nothing logged";
+  }
+
+  return `
+    <div class="ring-wrap">
+      <div class="cal-header" style="max-width:300px;margin:0 auto 4px;">
+        <button class="cal-nav" onclick="changePeriodMonth(-1)" aria-label="Previous month">‹</button>
+        <p class="section-title" style="margin:0;">${monthLabel}</p>
+        <button class="cal-nav" onclick="changePeriodMonth(1)" aria-label="Next month">›</button>
+      </div>
+      <div class="ring" style="width:${size}px;height:${size}px;">
+        ${nodes}
+        <div class="ring-center">
+          <p class="ring-center-label">${centerLabel}</p>
+          <p class="ring-center-date display">${centerDate}</p>
+          <p class="ring-center-sub">${centerSub}</p>
+        </div>
+      </div>
+      <div class="ring-stats">
+        <div><p class="ring-stat-num mono">${loggedThisMonth}</p><p class="ring-stat-label">This month</p></div>
+        <div><p class="ring-stat-num mono">${avgLength || "–"}</p><p class="ring-stat-label">Avg cycle</p></div>
+      </div>
+    </div>
+  `;
+}
+
+function periodTabHtml(now) {
+  const sortedDesc = [...periods].sort((a, b) => new Date(periodStart(b)) - new Date(periodStart(a)));
+  const lengths = cycleLengthsChrono();
 
   const rows = sortedDesc.map((p, i) => {
     const start = periodStart(p);
@@ -419,8 +496,8 @@ function periodTabHtml(now) {
 
   return `
     <div class="card" style="margin-bottom:20px;">
-      ${statusHtml}
-      <button class="btn" style="background:var(--sage);" onclick="logPeriod()">Log period started today</button>
+      ${periodRingHtml(now)}
+      <button class="btn" style="background:var(--sage);margin-top:16px;" onclick="logPeriod()">Log period started today</button>
     </div>
     <div class="section">
       <p class="section-title" style="color:var(--sage);">Cycle length</p>
@@ -792,11 +869,14 @@ function computeWeekdayStreak(item, now) {
 
 function patchRingHtml(item, now) {
   if (item.scheduleType !== "weekdays") return "";
-  const d = new Date(now);
-  const year = d.getFullYear();
-  const month = d.getMonth();
+  const base = new Date(now);
+  base.setDate(1);
+  base.setMonth(base.getMonth() + calendarOffset);
+  const year = base.getFullYear();
+  const month = base.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const todayDate = d.getDate();
+  const todayDate = calendarOffset === 0 ? new Date(now).getDate() : null;
+  const monthLabel = base.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const size = 300, center = size / 2, R = 112, rPill = 138;
 
   const scheduledTs = {};
@@ -845,11 +925,16 @@ function patchRingHtml(item, now) {
 
   return `
     <div class="ring-wrap">
+      <div class="cal-header" style="max-width:300px;margin:0 auto 4px;">
+        <button class="cal-nav" onclick="changeMonth(-1)" aria-label="Previous month">‹</button>
+        <p class="section-title" style="margin:0;">${monthLabel}</p>
+        <button class="cal-nav" onclick="changeMonth(1)" aria-label="Next month">›</button>
+      </div>
       <div class="ring" style="width:${size}px;height:${size}px;">
         ${nodes}
         <div class="ring-center">
-          <p class="ring-center-label">Today</p>
-          <p class="ring-center-date display">${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })}</p>
+          <p class="ring-center-label">${calendarOffset === 0 ? "Today" : monthLabel.split(" ")[0]}</p>
+          <p class="ring-center-date display">${calendarOffset === 0 ? new Date(now).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : year}</p>
           <p class="ring-center-sub">${streak > 0 ? streak + " in a row 🌱" : "Let's start a streak"}</p>
         </div>
       </div>
