@@ -132,6 +132,9 @@
   .ring-stats > div:first-child { border-right: 1px solid var(--line); }
   .ring-stat-num { font-size: 18px; font-weight: 600; margin: 0; }
   .ring-stat-label { font-size: 10px; color: var(--muted); margin: 2px 0 0; text-transform: uppercase; letter-spacing: 0.04em; }
+  .ring2-dot { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); }
+  .ring2-label { position: absolute; transform: translate(-50%, -50%); font-size: 10px; color: var(--dim); font-family: 'IBM Plex Mono', monospace; }
+  .ring2-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
 </style>
 </head>
 <body>
@@ -515,6 +518,63 @@ function handleRestoreFile(input) {
   input.value = "";
 }
 
+function combinedRingHtml(now) {
+  const base = new Date();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + calendarOffset);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthLabel = base.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const todayDate = calendarOffset === 0 ? new Date(now).getDate() : null;
+
+  const size = 260, center = size / 2, rOuter = 108, rInner = 76;
+  let outerNodes = "", innerNodes = "";
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const angle = ((day - 1) / daysInMonth) * 360 - 90;
+    const rad = (angle * Math.PI) / 180;
+    const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const hasPatch = history.some((h) => h.type === "patch" && h.date === key);
+    const hasPill = history.some((h) => h.type === "pill" && h.date === key);
+    const isToday = day === todayDate;
+
+    const xo = center + rOuter * Math.cos(rad), yo = center + rOuter * Math.sin(rad);
+    outerNodes += hasPatch
+      ? `<span class="ring2-dot" style="left:${xo}px;top:${yo}px;width:11px;height:11px;background:var(--rose);"></span>`
+      : `<span class="ring2-label" style="left:${xo}px;top:${yo}px;${isToday ? "font-weight:700;color:var(--ink);" : ""}">${day}</span>`;
+
+    if (hasPill) {
+      const xi = center + rInner * Math.cos(rad), yi = center + rInner * Math.sin(rad);
+      innerNodes += `<span class="ring2-dot" style="left:${xi}px;top:${yi}px;width:10px;height:10px;background:var(--slate);"></span>`;
+    }
+  }
+
+  return `
+    <div class="section">
+      <div class="cal-header">
+        <button class="cal-nav" onclick="changeMonth(-1)" aria-label="Previous month">‹</button>
+        <p class="section-title" style="margin:0;">${monthLabel}</p>
+        <button class="cal-nav" onclick="changeMonth(1)" aria-label="Next month">›</button>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;align-items:center;">
+        <div style="position:relative;width:${size}px;height:${size}px;margin:10px 0;">
+          ${outerNodes}
+          ${innerNodes}
+          <div class="ring2-center">
+            <p class="mono" style="font-size:10px;color:var(--muted);margin:0;text-transform:uppercase;letter-spacing:0.06em;">${calendarOffset === 0 ? "Today" : monthLabel.split(" ")[0]}</p>
+            <p class="display" style="font-size:26px;margin:3px 0 0;">${calendarOffset === 0 ? new Date(now).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : year}</p>
+          </div>
+        </div>
+        <div class="cal-legend">
+          <span><span class="cal-dot" style="background:var(--rose);"></span>Patch</span>
+          <span><span class="cal-dot" style="background:var(--slate);"></span>Pill</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function calendarHtml() {
   const base = new Date();
   base.setDate(1);
@@ -621,7 +681,7 @@ function render() {
       </div>
     `;
 
-    html += calendarHtml();
+    html += combinedRingHtml(now);
     html += sectionHtml("Patches", "#B5748C", patches, now);
     html += sectionHtml("Pills", "#7C8A9E", pills, now);
 
