@@ -254,16 +254,39 @@ function getInfo(item, now) {
   }
   if (item.scheduleType === "weekdays") {
     const todayStart = startOfDay(now);
-    const lastDoneDateStr = item.lastDone ? dateOnlyStr(item.lastDone) : null;
+    const lastDoneDayStart = item.lastDone ? startOfDay(new Date(item.lastDone).getTime()) : null;
+
+    let searchStart = todayStart;
+
+    if (lastDoneDayStart !== null) {
+      // Find the most recent scheduled occurrence at or before now.
+      let recentDue = null;
+      for (let offset = 0; offset <= 13; offset++) {
+        const dayStart = todayStart - offset * DAY;
+        const wd = new Date(dayStart).getDay();
+        const entry = item.weekdaySchedule.find((s) => s.day === wd);
+        if (entry) {
+          const [h, m] = entry.time.split(":").map(Number);
+          const ts = dayStart + h * 60 * 60 * 1000 + m * 60 * 1000;
+          if (ts <= now) { recentDue = { ts, dayStart }; break; }
+        }
+      }
+      // If that occurrence hasn't been confirmed yet, it stays due — don't skip past it.
+      if (recentDue && lastDoneDayStart < recentDue.dayStart) {
+        const state = "overdue";
+        return { state, dueTs: recentDue.ts, sortTs: recentDue.ts };
+      }
+      if (recentDue) searchStart = recentDue.dayStart + DAY;
+    }
+
     let due = null;
     for (let offset = 0; offset < 14; offset++) {
-      const cand = todayStart + offset * DAY;
-      const wd = new Date(cand).getDay();
+      const dayStart = searchStart + offset * DAY;
+      const wd = new Date(dayStart).getDay();
       const entry = item.weekdaySchedule.find((s) => s.day === wd);
       if (entry) {
-        if (offset === 0 && lastDoneDateStr === dateOnlyStr(cand)) continue;
         const [h, m] = entry.time.split(":").map(Number);
-        due = cand + h * 60 * 60 * 1000 + m * 60 * 1000;
+        due = dayStart + h * 60 * 60 * 1000 + m * 60 * 1000;
         break;
       }
     }
