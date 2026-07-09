@@ -967,13 +967,21 @@ function patchRingHtml(item, now) {
       else if (!isFuture) { border = "var(--terracotta)"; color = "var(--terracotta)"; }
       else { color = "var(--dim)"; }
       nodes += `<button class="ring-day" style="left:${x}px;top:${y}px;background:${bg};border-color:${border};color:${color};" ${isFuture ? "disabled" : `onclick="toggleWeekdayOccurrence('${item.id}', ${ts})"`}>${content}</button>`;
+    });
 
-      const dayKey = localDateKey(dayStart);
+    const rangeStart = blockDates[0];
+    const rangeEnd = blockDates[blockDates.length - 1];
+    const totalDaysInRange = Math.round((rangeEnd - rangeStart) / DAY) + 1;
+    for (let dOffset = 0; dOffset < totalDaysInRange; dOffset++) {
+      const dayTs = rangeStart + dOffset * DAY;
+      const dayKey = localDateKey(dayTs);
       if (history.some((hh) => hh.type === "pill" && hh.date === dayKey)) {
-        const xp = center + rPill * Math.cos(rad), yp = center + rPill * Math.sin(rad);
+        const pAngle = (dOffset / totalDaysInRange) * 360 - 90;
+        const pRad = (pAngle * Math.PI) / 180;
+        const xp = center + rPill * Math.cos(pRad), yp = center + rPill * Math.sin(pRad);
         nodes += `<span class="ring2-dot" style="left:${xp}px;top:${yp}px;width:9px;height:9px;background:var(--slate);"></span>`;
       }
-    });
+    }
 
     const rangeLabel = `${formatDateShort(blockDates[0])} – ${formatDateShort(blockDates[blockDates.length - 1])}`;
     headerHtml = `
