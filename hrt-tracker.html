@@ -207,6 +207,8 @@ function toDatetimeInputValue(ts) {
 }
 
 let calendarOffset = 0;
+let patchCycleOffset = 0;
+let editingCycleId = null;
 let periodRingOffset = 0;
 let activeTab = "tracker";
 let appTitle = storageGet("hrt-tracker-title") || "Keeping You Level";
@@ -867,74 +869,210 @@ function computeWeekdayStreak(item, now) {
   return streak;
 }
 
-function patchRingHtml(item, now) {
-  if (item.scheduleType !== "weekdays") return "";
-  const base = new Date(now);
-  base.setDate(1);
-  base.setMonth(base.getMonth() + calendarOffset);
-  const year = base.getFullYear();
-  const month = base.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const todayDate = calendarOffset === 0 ? new Date(now).getDate() : null;
-  const monthLabel = base.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  const size = 300, center = size / 2, R = 112, rPill = 138;
+function getPatchCycleInfo(item, now, offset) {
+  const N = item.cyclePatchCount || 8;
+  const anchorDay = startOfDay(new Date(item.cycleAnchor).getTime());
+  const todayDay = startOfDay(now);
 
-  const scheduledTs = {};
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dayStart = new Date(year, month, day).getTime();
-    const wd = new Date(dayStart).getDay();
-    const entry = item.weekdaySchedule.find((s) => s.day === wd);
-    if (entry) {
-      const [h, m] = entry.time.split(":").map(Number);
-      scheduledTs[day] = dayStart + h * 60 * 60 * 1000 + m * 60 * 1000;
-    }
+  let countThroughToday = 0;
+  let cursor = anchorDay;
+  let guard = 0;
+  while (cursor <= todayDay && guard < 3650) {
+    const wd = new Date(cursor).getDay();
+    if (item.weekdaySchedule.some((s) => s.day === wd)) countThroughToday++;
+    cursor += DAY;
+    guard++;
   }
 
-  const pastEntries = Object.values(scheduledTs).filter((ts) => ts <= now);
-  const doneCount = pastEntries.filter((ts) => history.some((h) => h.itemId === item.id && h.date === localDateKey(ts))).length;
+  const posOfMostRecent = countThroughToday === 0 ? 0 : ((countThroughToday - 1) % N) + 1;
+  let blockStartAbsIndex = countThroughToday === 0 ? 1 : countThroughToday - posOfMostRecent + 1;
+  blockStartAbsIndex += offset * N;
+  if (blockStartAbsIndex < 1) blockStartAbsIndex = 1;
+
+  const blockDates = [];
+  cursor = anchorDay;
+  let absIndex = 0;
+  guard = 0;
+  while (blockDates.length < N && guard < 3650) {
+    const wd = new Date(cursor).getDay();
+    if (item.weekdaySchedule.some((s) => s.day === wd)) {
+      absIndex++;
+      if (absIndex >= blockStartAbsIndex) blockDates.push(cursor);
+    }
+    cursor += DAY;
+    guard++;
+  }
+
+  return { N, blockDates, positionOfMostRecent: offset === 0 ? posOfMostRecent : null };
+}
+
+function changePatchCycle(delta) {
+  patchCycleOffset += delta;
+  render();
+}
+
+function openCycleSettings(id) {
+  editingCycleId = id;
+  render();
+}
+
+function cancelCycleSettings() {
+  editingCycleId = null;
+  render();
+}
+
+function saveCycleSettings(id) {
+  const dateInput = document.getElementById("cycle-anchor-" + id);
+  const countInput = document.getElementById("cycle-count-" + id);
+  if (!dateInput || !dateInput.value) { editingCycleId = null; render(); return; }
+  const count = countInput && Number(countInput.value) > 0 ? Number(countInput.value) : 8;
+  items = items.map((it) => it.id === id ? { ...it, cycleAnchor: new Date(dateInput.value).toISOString(), cyclePatchCount: count } : it);
+  save();
+  patchCycleOffset = 0;
+  editingCycleId = null;
+  render();
+}
+
+function clearCycleSettings(id) {
+  items = items.map((it) => it.id === id ? { ...it, cycleAnchor: undefined, cyclePatchCount: undefined } : it);
+  save();
+  editingCycleId = null;
+  render();
+}
+
+function patchRingHtml(item, now) {
+  if (item.scheduleType !== "weekdays") return "";
+  const size = 300, center = size / 2, R = 112, rPill = 138;
   const streak = computeWeekdayStreak(item, now);
+  let nodes = "", headerHtml, centerLabel, centerDate, doneCount, totalCount;
 
-  let nodes = "";
-  for (let day = 1; day <= daysInMonth; day++) {
-    const angle = ((day - 1) / daysInMonth) * 360 - 90;
-    const rad = (angle * Math.PI) / 180;
-    const x = center + R * Math.cos(rad);
-    const y = center + R * Math.sin(rad);
+  if (item.cycleAnchor) {
+    const { N, blockDates, positionOfMostRecent } = getPatchCycleInfo(item, now, patchCycleOffset);
+    doneCount = blockDates.filter((ts) => history.some((h) => h.itemId === item.id && h.date === localDateKey(ts))).length;
+    totalCount = N;
 
-    if (scheduledTs[day] !== undefined) {
-      const ts = scheduledTs[day];
+    blockDates.forEach((dayStart, i) => {
+      const angle = (i / N) * 360 - 90;
+      const rad = (angle * Math.PI) / 180;
+      const x = center + R * Math.cos(rad), y = center + R * Math.sin(rad);
+      const wd = new Date(dayStart).getDay();
+      const entry = item.weekdaySchedule.find((s) => s.day === wd);
+      const [h, m] = entry.time.split(":").map(Number);
+      const ts = dayStart + h * 60 * 60 * 1000 + m * 60 * 1000;
       const key = localDateKey(ts);
-      const done = history.some((h) => h.itemId === item.id && h.date === key);
+      const done = history.some((hh) => hh.itemId === item.id && hh.date === key);
       const isFuture = ts > now;
-      let bg = "#fff", border = "var(--line)", color = "var(--muted)", content = day;
+      let bg = "#fff", border = "var(--line)", color = "var(--muted)", content = i + 1;
       if (done) { bg = "var(--rose)"; border = "var(--rose)"; color = "#fff"; content = "✓"; }
       else if (!isFuture) { border = "var(--terracotta)"; color = "var(--terracotta)"; }
       else { color = "var(--dim)"; }
       nodes += `<button class="ring-day" style="left:${x}px;top:${y}px;background:${bg};border-color:${border};color:${color};" ${isFuture ? "disabled" : `onclick="toggleWeekdayOccurrence('${item.id}', ${ts})"`}>${content}</button>`;
-    } else {
-      const isToday = day === todayDate;
-      nodes += `<span class="ring-label" style="left:${x}px;top:${y}px;${isToday ? "font-weight:700;color:var(--ink);" : ""}">${day}</span>`;
+
+      const dayKey = localDateKey(dayStart);
+      if (history.some((hh) => hh.type === "pill" && hh.date === dayKey)) {
+        const xp = center + rPill * Math.cos(rad), yp = center + rPill * Math.sin(rad);
+        nodes += `<span class="ring2-dot" style="left:${xp}px;top:${yp}px;width:9px;height:9px;background:var(--slate);"></span>`;
+      }
+    });
+
+    const rangeLabel = `${formatDateShort(blockDates[0])} – ${formatDateShort(blockDates[blockDates.length - 1])}`;
+    headerHtml = `
+      <div class="cal-header" style="max-width:300px;margin:0 auto 4px;">
+        <button class="cal-nav" onclick="changePatchCycle(-1)" aria-label="Previous cycle">‹</button>
+        <p class="section-title" style="margin:0;">${rangeLabel}</p>
+        <button class="cal-nav" onclick="changePatchCycle(1)" aria-label="Next cycle">›</button>
+      </div>
+    `;
+    centerLabel = "This cycle";
+    centerDate = positionOfMostRecent ? `${positionOfMostRecent} of ${N}` : `1 of ${N}`;
+  } else {
+    const base = new Date(now);
+    base.setDate(1);
+    base.setMonth(base.getMonth() + calendarOffset);
+    const year = base.getFullYear();
+    const month = base.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const todayDate = calendarOffset === 0 ? new Date(now).getDate() : null;
+    const monthLabel = base.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+    const scheduledTs = {};
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayStart = new Date(year, month, day).getTime();
+      const wd = new Date(dayStart).getDay();
+      const entry = item.weekdaySchedule.find((s) => s.day === wd);
+      if (entry) {
+        const [h, m] = entry.time.split(":").map(Number);
+        scheduledTs[day] = dayStart + h * 60 * 60 * 1000 + m * 60 * 1000;
+      }
+    }
+    const pastEntries = Object.values(scheduledTs).filter((ts) => ts <= now);
+    doneCount = pastEntries.filter((ts) => history.some((h) => h.itemId === item.id && h.date === localDateKey(ts))).length;
+    totalCount = pastEntries.length;
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const angle = ((day - 1) / daysInMonth) * 360 - 90;
+      const rad = (angle * Math.PI) / 180;
+      const x = center + R * Math.cos(rad), y = center + R * Math.sin(rad);
+
+      if (scheduledTs[day] !== undefined) {
+        const ts = scheduledTs[day];
+        const key = localDateKey(ts);
+        const done = history.some((h) => h.itemId === item.id && h.date === key);
+        const isFuture = ts > now;
+        let bg = "#fff", border = "var(--line)", color = "var(--muted)", content = day;
+        if (done) { bg = "var(--rose)"; border = "var(--rose)"; color = "#fff"; content = "✓"; }
+        else if (!isFuture) { border = "var(--terracotta)"; color = "var(--terracotta)"; }
+        else { color = "var(--dim)"; }
+        nodes += `<button class="ring-day" style="left:${x}px;top:${y}px;background:${bg};border-color:${border};color:${color};" ${isFuture ? "disabled" : `onclick="toggleWeekdayOccurrence('${item.id}', ${ts})"`}>${content}</button>`;
+      } else {
+        const isToday = day === todayDate;
+        nodes += `<span class="ring-label" style="left:${x}px;top:${y}px;${isToday ? "font-weight:700;color:var(--ink);" : ""}">${day}</span>`;
+      }
+
+      const dayKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      if (history.some((h) => h.type === "pill" && h.date === dayKey)) {
+        const xp = center + rPill * Math.cos(rad), yp = center + rPill * Math.sin(rad);
+        nodes += `<span class="ring2-dot" style="left:${xp}px;top:${yp}px;width:9px;height:9px;background:var(--slate);"></span>`;
+      }
     }
 
-    const dayKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    if (history.some((h) => h.type === "pill" && h.date === dayKey)) {
-      const xp = center + rPill * Math.cos(rad), yp = center + rPill * Math.sin(rad);
-      nodes += `<span class="ring2-dot" style="left:${xp}px;top:${yp}px;width:9px;height:9px;background:var(--slate);"></span>`;
-    }
-  }
-
-  return `
-    <div class="ring-wrap">
+    headerHtml = `
       <div class="cal-header" style="max-width:300px;margin:0 auto 4px;">
         <button class="cal-nav" onclick="changeMonth(-1)" aria-label="Previous month">‹</button>
         <p class="section-title" style="margin:0;">${monthLabel}</p>
         <button class="cal-nav" onclick="changeMonth(1)" aria-label="Next month">›</button>
       </div>
+    `;
+    centerLabel = calendarOffset === 0 ? "Today" : monthLabel.split(" ")[0];
+    centerDate = calendarOffset === 0 ? new Date(now).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : year;
+  }
+
+  const settingsHtml = editingCycleId === item.id ? `
+    <div style="max-width:300px;margin:12px auto 0;text-align:left;">
+      <div class="field-row" style="margin-bottom:8px;">
+        <span class="field-label">First patch of cycle</span>
+        <input type="date" id="cycle-anchor-${item.id}" value="${item.cycleAnchor ? new Date(item.cycleAnchor).toISOString().slice(0, 10) : new Date(now).toISOString().slice(0, 10)}" />
+      </div>
+      <div class="field-row" style="margin-bottom:8px;">
+        <span class="field-label">Patches per cycle</span>
+        <input type="number" id="cycle-count-${item.id}" min="1" value="${item.cyclePatchCount || 8}" style="width:64px;" />
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-cancel" style="flex:1;border-radius:8px;padding:9px;font-size:13px;" onclick="cancelCycleSettings()">Cancel</button>
+        <button class="btn-submit" style="flex:1;border-radius:8px;padding:9px;font-size:13px;" onclick="saveCycleSettings('${item.id}')">Save</button>
+      </div>
+      ${item.cycleAnchor ? `<button class="backup-link" style="margin-top:8px;" onclick="clearCycleSettings('${item.id}')">Switch back to calendar month</button>` : ""}
+    </div>
+  ` : `<button class="backup-link" style="display:block;text-align:center;margin:12px auto 0;" onclick="openCycleSettings('${item.id}')">${item.cycleAnchor ? "Adjust cycle start" : "Track by cycle instead of month"}</button>`;
+
+  return `
+    <div class="ring-wrap">
+      ${headerHtml}
       <div class="ring" style="width:${size}px;height:${size}px;">
         ${nodes}
         <div class="ring-center">
-          <p class="ring-center-label">${calendarOffset === 0 ? "Today" : monthLabel.split(" ")[0]}</p>
-          <p class="ring-center-date display">${calendarOffset === 0 ? new Date(now).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : year}</p>
+          <p class="ring-center-label">${centerLabel}</p>
+          <p class="ring-center-date display">${centerDate}</p>
           <p class="ring-center-sub">${streak > 0 ? streak + " in a row 🌱" : "Let's start a streak"}</p>
         </div>
       </div>
@@ -943,9 +1081,10 @@ function patchRingHtml(item, now) {
         <span><span class="cal-dot" style="background:var(--slate);"></span>Pill</span>
       </div>
       <div class="ring-stats">
-        <div><p class="ring-stat-num mono">${doneCount}/${pastEntries.length}</p><p class="ring-stat-label">This month</p></div>
+        <div><p class="ring-stat-num mono">${doneCount}/${totalCount}</p><p class="ring-stat-label">${item.cycleAnchor ? "This cycle" : "This month"}</p></div>
         <div><p class="ring-stat-num mono">${streak}</p><p class="ring-stat-label">Streak</p></div>
       </div>
+      ${settingsHtml}
     </div>
   `;
 }
