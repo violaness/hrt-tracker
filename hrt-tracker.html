@@ -983,8 +983,10 @@ function patchRingHtml(item, now) {
         <button class="cal-nav" onclick="changePatchCycle(1)" aria-label="Next cycle">›</button>
       </div>
     `;
-    centerLabel = "This cycle";
-    centerDate = positionOfMostRecent ? `${positionOfMostRecent} of ${N}` : `1 of ${N}`;
+    centerLabel = patchCycleOffset === 0 ? "Today" : "Cycle";
+    centerDate = patchCycleOffset === 0
+      ? new Date(now).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+      : formatDateShort(blockDates[0]);
   } else {
     const base = new Date(now);
     base.setDate(1);
