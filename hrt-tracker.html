@@ -760,8 +760,8 @@ function render() {
       </div>
     `;
 
-    html += sectionHtml("Patches", "#59705B", patches, now);
-    html += sectionHtml("Pills", "#9AAEA3", pills, now);
+    html += sectionHtml("Patches", "#59705B", patches, now, hero ? hero.item.id : null);
+    html += sectionHtml("Pills", "#9AAEA3", pills, now, hero ? hero.item.id : null);
 
     html += `<div style="margin-top:24px;">`;
     html += showAdd ? formHtml() : `<button class="add-toggle" onclick="toggleAdd()">+ Add medication</button>`;
@@ -1190,7 +1190,7 @@ function heroHtml(entry, now) {
     </div>`;
 }
 
-function sectionHtml(title, color, entries, now) {
+function sectionHtml(title, color, entries, now, heroId) {
   if (entries.length === 0) return "";
   let rows = entries.map(({ item, info }) => {
     const statusColor = info.state === "overdue" ? "var(--terracotta)" : (info.state === "today" || info.state === "active") ? "var(--rose)" : info.state === "unset" ? "var(--dim)" : "var(--sage)";
@@ -1200,13 +1200,15 @@ function sectionHtml(title, color, entries, now) {
     else if (info.state === "waiting") sub = "starts " + formatCountdown(info.nextStartTs - now);
     else sub = formatCountdown(info.dueTs - now);
 
+    const isHero = item.id === heroId;
+
     return `
       <div class="row">
         <div style="min-width:0;">
           <button onclick="openEditName('${item.id}')" style="background:none;border:none;padding:0;text-align:left;cursor:pointer;color:inherit;-webkit-appearance:none;appearance:none;" aria-label="Edit name">
             <p class="row-name" style="text-decoration:underline;text-decoration-color:var(--line);">${esc(item.name)}</p>
           </button>
-          <p class="row-sub mono" style="color:${statusColor};">${sub}</p>
+          <p class="row-sub mono" style="color:${statusColor};">${sub}${isHero ? " · shown above" : ""}</p>
         </div>
         <div class="row-actions">
           <button class="icon-btn" style="background:${color}1A;color:${color};" onclick="markDone('${item.id}')" aria-label="Mark done">✓</button>
@@ -1215,8 +1217,8 @@ function sectionHtml(title, color, entries, now) {
           <button class="icon-btn" style="color:var(--dim);" onclick="removeItem('${item.id}')" aria-label="Remove">✕</button>
         </div>
       </div>
-      ${item.scheduleType === "cycle" && info.state === "active" ? `<div class="row" style="border-top:none;padding-top:0;justify-content:center;">${dayChecklistHtml(item, now)}</div>` : ""}
-      ${item.scheduleType === "weekdays" ? `<div class="row" style="border-top:none;padding-top:0;justify-content:center;">${patchRingHtml(item, now)}</div>` : ""}
+      ${item.scheduleType === "cycle" && info.state === "active" && !isHero ? `<div class="row" style="border-top:none;padding-top:0;justify-content:center;">${dayChecklistHtml(item, now)}</div>` : ""}
+      ${item.scheduleType === "weekdays" && !isHero ? `<div class="row" style="border-top:none;padding-top:0;justify-content:center;">${patchRingHtml(item, now)}</div>` : ""}
       ${editingNameId === item.id ? `
         <div class="row" style="background:#E4E9E2;flex-direction:column;align-items:stretch;gap:8px;">
           <input type="text" id="edit-name-${item.id}" value="${esc(item.name)}" class="full" />
