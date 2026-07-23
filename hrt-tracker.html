@@ -209,6 +209,7 @@ function toDatetimeInputValue(ts) {
 let calendarOffset = 0;
 let patchCycleOffset = 0;
 let editingCycleId = null;
+let editingDurationFor = null;
 let periodRingOffset = 0;
 let activeTab = "tracker";
 let appTitle = storageGet("hrt-tracker-title") || "Keeping You Level";
@@ -427,12 +428,21 @@ function periodRingHtml(now) {
     const y = center + R * Math.sin(rad);
     const dayStart = new Date(year, month, day).getTime();
     const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const logged = periods.some((p) => localDateKey(new Date(periodStart(p)).getTime()) === key);
+    const isStart = periods.some((p) => localDateKey(new Date(periodStart(p)).getTime()) === key);
+    const inSpan = !isStart && periods.some((p) => {
+      const dur = periodDuration(p);
+      if (!dur) return false;
+      const pStart = startOfDay(new Date(periodStart(p)).getTime());
+      const pEnd = pStart + (dur - 1) * DAY;
+      return dayStart >= pStart && dayStart <= pEnd;
+    });
     const isFuture = dayStart > now;
     const isToday = day === todayDate;
 
-    if (logged) {
+    if (isStart) {
       nodes += `<button class="ring-day" style="left:${x}px;top:${y}px;background:var(--sage);border-color:var(--sage);color:#fff;" onclick="togglePeriodDay(${dayStart})">✓</button>`;
+    } else if (inSpan) {
+      nodes += `<span class="ring-day" style="left:${x}px;top:${y}px;background:#BBBB9A80;border-color:transparent;color:#fff;display:flex;align-items:center;justify-content:center;position:absolute;width:28px;height:28px;border-radius:50%;transform:translate(-50%,-50%);font-size:11px;">${day}</span>`;
     } else if (isFuture) {
       nodes += `<span class="ring-label" style="left:${x}px;top:${y}px;">${day}</span>`;
     } else {
@@ -489,10 +499,22 @@ function periodTabHtml(now) {
           <p class="row-sub mono" style="color:var(--muted);">${dur ? dur + "d duration" : "duration not set"} · cycle ${cycle}</p>
         </div>
         <div class="row-actions">
-          <button class="icon-btn" style="background:#BBBB9A1A;color:var(--sage);" onclick="editDuration('${start}')" aria-label="Edit duration">✎</button>
+          <button class="icon-btn" style="background:#BBBB9A1A;color:var(--sage);" onclick="openEditDuration('${start}')" aria-label="Edit duration">✎</button>
           <button class="icon-btn" style="color:var(--dim);" onclick="removePeriod('${start}')" aria-label="Remove">✕</button>
         </div>
       </div>
+      ${editingDurationFor === start ? `
+        <div class="row" style="background:#E4E9E2;flex-direction:column;align-items:stretch;gap:8px;">
+          <div class="field-row">
+            <span class="field-label">Days it lasted</span>
+            <input type="number" id="duration-input" min="1" value="${dur || ""}" style="width:64px;" />
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-cancel" style="flex:1;border-radius:8px;padding:8px;font-size:12px;" onclick="cancelEditDuration()">Cancel</button>
+            <button class="btn-submit" style="flex:1;border-radius:8px;padding:8px;font-size:12px;" onclick="saveEditDuration('${start}')">Save</button>
+          </div>
+        </div>
+      ` : ""}
     `;
   }).join("");
 
@@ -515,19 +537,28 @@ function periodTabHtml(now) {
 function logPeriod() {
   const today = new Date().toDateString();
   if (periods.some((p) => new Date(periodStart(p)).toDateString() === today)) { render(); return; }
-  const raw = window.prompt("How many days did/will it last? (optional — leave blank to skip)");
-  const duration = raw && !isNaN(Number(raw)) && raw.trim() !== "" ? Number(raw) : null;
-  periods.push({ start: new Date().toISOString(), duration });
+  periods.push({ start: new Date().toISOString(), duration: null });
   savePeriods();
   render();
 }
 
-function editDuration(start) {
-  const raw = window.prompt("How many days did it last?");
-  if (raw === null) return;
-  const duration = !isNaN(Number(raw)) && raw.trim() !== "" ? Number(raw) : null;
+function openEditDuration(start) {
+  editingDurationFor = start;
+  render();
+}
+
+function cancelEditDuration() {
+  editingDurationFor = null;
+  render();
+}
+
+function saveEditDuration(start) {
+  const input = document.getElementById("duration-input");
+  const raw = input ? input.value.trim() : "";
+  const duration = raw !== "" && !isNaN(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
   periods = periods.map((p) => periodStart(p) === start ? { start, duration } : p);
   savePeriods();
+  editingDurationFor = null;
   render();
 }
 
